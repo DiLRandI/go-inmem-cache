@@ -1,8 +1,10 @@
 package goinmemcache
 
 import (
+	"reflect"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 type Config struct {
@@ -16,14 +18,16 @@ type Cache[K comparable, V any] interface {
 	Get(key K) (V, bool)
 	Delete(key K)
 	Len() int
+	CurrentSize() int64
 	Clear()
 	CleanupExpired() int
 }
 
 type cache[K comparable, V any] struct {
-	mu       sync.RWMutex
-	size     *int64
-	maxItems *int64
+	mu          sync.RWMutex
+	size        *int64
+	currentSize int64
+	maxItems    *int64
 
 	items []cacheItem[K, V]
 	index map[K]int
@@ -34,6 +38,7 @@ type cacheItem[K comparable, V any] struct {
 	Value     V
 	TTL       *time.Duration
 	CreatedAt time.Time
+	Size      int64
 }
 
 func New[K comparable, V any](config *Config) Cache[K, V] {
@@ -81,6 +86,9 @@ func (c *cache[K, V]) Delete(key K) {
 	defer c.mu.Unlock()
 
 	if index, exists := c.index[key]; exists {
+		// Update current size
+		c.currentSize -= c.items[index].Size
+
 		// Remove from index first
 		delete(c.index, key)
 
@@ -114,19 +122,55 @@ func (c *cache[K, V]) isItemValid(item cacheItem[K, V]) bool {
 	return time.Since(item.CreatedAt) < *item.TTL
 }
 
-// isCacheFull checks if the cache has reached its maximum capacity
-func (c *cache[K, V]) isCacheFull() bool {
-	return c.maxItems != nil && int64(len(c.items)) >= *c.maxItems
-}
-
 // setItem is a helper method that consolidates the logic for setting cache items
 func (c *cache[K, V]) setItem(key K, value V, ttl *time.Duration) {
-	// If updating existing item, no need to check capacity
-	if _, exists := c.index[key]; !exists {
-		// Adding new item - check if we need to make space
-		if c.isCacheFull() {
-			c.removeOldestItem()
+	itemSize := calculateItemSize(key, value)
+
+	// If updating existing item, handle size difference
+	if index, exists := c.index[key]; exists {
+		oldSize := c.items[index].Size
+		newTotalSize := c.currentSize - oldSize + itemSize
+
+		// Evict items if the update would exceed limits
+		for (c.size != nil && newTotalSize > *c.size) ||
+			(c.maxItems != nil && int64(len(c.items)) >= *c.maxItems) {
+			if len(c.items) <= 1 { // Don't evict the item we're updating
+				break
+			}
+			// Find an item to evict that's not the one we're updating
+			if c.items[0].Key == key && len(c.items) > 1 {
+				// If the first item is the one we're updating, evict the second
+				oldestItem := c.items[1]
+				c.currentSize -= oldestItem.Size
+				delete(c.index, oldestItem.Key)
+				c.items = append(c.items[:1], c.items[2:]...)
+				// Update indices
+				for k, idx := range c.index {
+					if idx > 1 {
+						c.index[k] = idx - 1
+					}
+				}
+			} else {
+				c.removeOldestItem()
+			}
+			newTotalSize = c.currentSize - oldSize + itemSize
 		}
+
+		c.currentSize = newTotalSize
+	} else {
+		// Adding new item - evict items if necessary before adding
+		newTotalSize := c.currentSize + itemSize
+
+		for (c.size != nil && newTotalSize > *c.size) ||
+			(c.maxItems != nil && int64(len(c.items)) >= *c.maxItems) {
+			if len(c.items) == 0 {
+				break // No items to evict
+			}
+			c.removeOldestItem()
+			newTotalSize = c.currentSize + itemSize
+		}
+
+		c.currentSize = newTotalSize
 	}
 
 	item := cacheItem[K, V]{
@@ -134,6 +178,7 @@ func (c *cache[K, V]) setItem(key K, value V, ttl *time.Duration) {
 		Value:     value,
 		TTL:       ttl,
 		CreatedAt: time.Now(),
+		Size:      itemSize,
 	}
 
 	c.updateOrAddItem(key, item)
@@ -145,11 +190,14 @@ func (c *cache[K, V]) removeOldestItem() {
 		return
 	}
 
-	// Get the key of the oldest item (first in the slice)
-	oldestKey := c.items[0].Key
+	// Get the oldest item (first in the slice)
+	oldestItem := c.items[0]
+
+	// Update current size
+	c.currentSize -= oldestItem.Size
 
 	// Remove from index
-	delete(c.index, oldestKey)
+	delete(c.index, oldestItem.Key)
 
 	// Remove from items slice
 	c.items = c.items[1:]
@@ -167,12 +215,20 @@ func (c *cache[K, V]) Len() int {
 	return len(c.items)
 }
 
+// CurrentSize returns the current memory usage in bytes
+func (c *cache[K, V]) CurrentSize() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.currentSize
+}
+
 // Clear removes all items from the cache
 func (c *cache[K, V]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items = []cacheItem[K, V]{}
 	c.index = make(map[K]int)
+	c.currentSize = 0
 }
 
 // CleanupExpired removes all expired items from the cache
@@ -183,11 +239,13 @@ func (c *cache[K, V]) CleanupExpired() int {
 	var validItems []cacheItem[K, V]
 	newIndex := make(map[K]int)
 	removedCount := 0
+	newSize := int64(0)
 
 	for _, item := range c.items {
 		if c.isItemValid(item) {
 			newIndex[item.Key] = len(validItems)
 			validItems = append(validItems, item)
+			newSize += item.Size
 		} else {
 			removedCount++
 		}
@@ -195,6 +253,48 @@ func (c *cache[K, V]) CleanupExpired() int {
 
 	c.items = validItems
 	c.index = newIndex
+	c.currentSize = newSize
 
 	return removedCount
+}
+
+// calculateItemSize estimates the memory size of a cache item
+func calculateItemSize[K comparable, V any](key K, value V) int64 {
+	var size int64
+
+	// Calculate key size
+	keyType := reflect.TypeOf(key)
+	if keyType.Kind() == reflect.String {
+		size += int64(len(reflect.ValueOf(key).String()))
+	} else {
+		size += int64(keyType.Size())
+	}
+
+	// Calculate value size
+	valueType := reflect.TypeOf(value)
+	switch valueType.Kind() {
+	case reflect.String:
+		size += int64(len(reflect.ValueOf(value).String()))
+	case reflect.Slice:
+		valueVal := reflect.ValueOf(value)
+		size += int64(valueVal.Len()) * int64(valueType.Elem().Size())
+	case reflect.Map:
+		valueVal := reflect.ValueOf(value)
+		size += int64(valueVal.Len()) * (int64(valueType.Key().Size()) + int64(valueType.Elem().Size()))
+	case reflect.Ptr:
+		if !reflect.ValueOf(value).IsNil() {
+			size += int64(valueType.Elem().Size())
+		}
+	default:
+		size += int64(valueType.Size())
+	}
+
+	// Add overhead for the cache item struct itself
+	size += int64(unsafe.Sizeof(time.Time{})) // CreatedAt
+	size += 8                                 // Size field
+	if reflect.TypeOf((*time.Duration)(nil)).Elem().Size() > 0 {
+		size += 8 // TTL pointer
+	}
+
+	return size
 }

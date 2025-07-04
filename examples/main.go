@@ -20,7 +20,11 @@ func main() {
 	fmt.Println("\n=== LRU Eviction ===")
 	lruExample()
 
-	// Example 4: Different Types
+	// Example 4: Size-Based Eviction
+	fmt.Println("\n=== Size-Based Eviction ===")
+	sizeExample()
+
+	// Example 5: Different Types
 	fmt.Println("\n=== Different Types ===")
 	typeExample()
 }
@@ -99,6 +103,36 @@ func lruExample() {
 	// Other items should still exist
 	if value, found := myCache.Get("item2"); found {
 		fmt.Printf("item2 still exists: %d\n", value)
+	}
+}
+
+func sizeExample() {
+	// Create cache with 100 bytes memory limit
+	maxSize := int64(100)
+	config := &cache.Config{Size: &maxSize}
+	myCache := cache.New[string, string](config)
+
+	// Add items and show memory usage
+	myCache.Set("small1", "x")
+	fmt.Printf("After adding small1: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+
+	myCache.Set("small2", "y")
+	fmt.Printf("After adding small2: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+
+	myCache.Set("small3", "z")
+	fmt.Printf("After adding small3: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+
+	// Add a larger item that should trigger size-based eviction
+	myCache.Set("large", "this is a much longer string that will trigger eviction")
+	fmt.Printf("After adding large item: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+
+	// Check which items remain
+	for _, key := range []string{"small1", "small2", "small3", "large"} {
+		if _, found := myCache.Get(key); found {
+			fmt.Printf("Key '%s' still exists\n", key)
+		} else {
+			fmt.Printf("Key '%s' was evicted\n", key)
+		}
 	}
 }
 

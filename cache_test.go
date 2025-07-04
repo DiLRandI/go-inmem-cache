@@ -125,3 +125,124 @@ func TestCleanupExpired(t *testing.T) {
 		t.Errorf("Expected key3 to still exist with value 'value3'")
 	}
 }
+
+func TestSizeBasedEviction(t *testing.T) {
+	// Create cache with 100 bytes limit
+	maxSize := int64(100)
+	config := &Config{Size: &maxSize}
+	cache := New[string, string](config)
+
+	// Add first item
+	cache.Set("item1", "short")
+	size1 := cache.CurrentSize()
+	fmt.Printf("After item1: size=%d bytes, len=%d\n", size1, cache.Len())
+
+	// Add second item
+	cache.Set("item2", "medium length value")
+	size2 := cache.CurrentSize()
+	fmt.Printf("After item2: size=%d bytes, len=%d\n", size2, cache.Len())
+
+	// Add third item
+	cache.Set("item3", "another value")
+	size3 := cache.CurrentSize()
+	fmt.Printf("After item3: size=%d bytes, len=%d\n", size3, cache.Len())
+
+	// Add a moderately large item that should trigger some eviction
+	cache.Set("item4", "this is a longer string that should trigger eviction")
+
+	finalSize := cache.CurrentSize()
+	finalLen := cache.Len()
+
+	fmt.Printf("After adding item4: size=%d bytes, len=%d\n", finalSize, finalLen)
+
+	// Size should be within reasonable bounds of the limit
+	tolerance := maxSize + (maxSize / 2) // 150% of the limit
+	if finalSize > tolerance {
+		t.Errorf("Cache size %d significantly exceeds limit %d (tolerance: %d)", finalSize, maxSize, tolerance)
+	}
+
+	// Some eviction should have happened
+	if finalLen >= 4 {
+		t.Errorf("Expected some items to be evicted, but all %d items remain", finalLen)
+	}
+}
+
+func TestSizeTracking(t *testing.T) {
+	cache := New[string, string](nil)
+
+	// Initial size should be 0
+	if cache.CurrentSize() != 0 {
+		t.Errorf("Initial cache size should be 0, got %d", cache.CurrentSize())
+	}
+
+	// Add an item
+	cache.Set("key1", "value1")
+	size1 := cache.CurrentSize()
+
+	if size1 <= 0 {
+		t.Errorf("Cache size should be positive after adding item, got %d", size1)
+	}
+
+	// Add another item
+	cache.Set("key2", "longer value string")
+	size2 := cache.CurrentSize()
+
+	if size2 <= size1 {
+		t.Errorf("Cache size should increase after adding larger item: %d <= %d", size2, size1)
+	}
+
+	// Delete an item
+	cache.Delete("key1")
+	size3 := cache.CurrentSize()
+
+	if size3 >= size2 {
+		t.Errorf("Cache size should decrease after deleting item: %d >= %d", size3, size2)
+	}
+
+	// Clear cache
+	cache.Clear()
+	if cache.CurrentSize() != 0 {
+		t.Errorf("Cache size should be 0 after clear, got %d", cache.CurrentSize())
+	}
+}
+
+func TestBothSizeAndItemLimits(t *testing.T) {
+	// Create cache with both size and item limits
+	maxSize := int64(200)
+	maxItems := int64(2)
+	config := &Config{
+		Size:     &maxSize,
+		MaxItems: &maxItems,
+	}
+	cache := New[string, string](config)
+
+	// Add items
+	cache.Set("item1", "value1")
+	cache.Set("item2", "value2")
+
+	// Should have 2 items
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 items, got %d", cache.Len())
+	}
+
+	// Add third item - should trigger item-based eviction
+	cache.Set("item3", "value3")
+
+	// Should still have 2 items (item1 evicted)
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 items after item limit eviction, got %d", cache.Len())
+	}
+
+	// item1 should be gone
+	if _, found := cache.Get("item1"); found {
+		t.Errorf("item1 should have been evicted due to item limit")
+	}
+
+	// item2 and item3 should exist
+	if _, found := cache.Get("item2"); !found {
+		t.Errorf("item2 should still exist")
+	}
+	if _, found := cache.Get("item3"); !found {
+		t.Errorf("item3 should exist")
+	}
+}

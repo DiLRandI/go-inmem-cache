@@ -8,8 +8,9 @@ A high-performance, thread-safe, generic in-memory cache implementation for Go w
 - 🔒 **Thread-Safe**: Built with `sync.RWMutex` for concurrent access
 - ⏰ **TTL Support**: Set expiration times for cache entries
 - 📦 **LRU Eviction**: Automatically removes oldest items when cache reaches capacity
+- 💾 **Size-Based Eviction**: FIFO eviction when memory usage exceeds size limit
 - 🧹 **Manual Cleanup**: Remove expired items on-demand
-- 📊 **Cache Statistics**: Get cache size and clear all items
+- 📊 **Cache Statistics**: Get cache size, item count, and memory usage
 - 🎯 **Zero Dependencies**: Uses only Go standard library
 
 ## Installation
@@ -31,10 +32,12 @@ import (
 )
 
 func main() {
-    // Create a new cache with maximum 100 items
+    // Create a new cache with maximum 100 items and 1MB memory limit
     maxItems := int64(100)
+    maxSize := int64(1024 * 1024) // 1MB
     config := &cache.Config{
         MaxItems: &maxItems,
+        Size:     &maxSize,
     }
     
     // Create cache for string keys and int values
@@ -66,8 +69,8 @@ func main() {
 
 ```go
 type Config struct {
-    Size     *int64  // Reserved for future use
-    MaxItems *int64  // Maximum number of items in cache
+    Size     *int64  // Maximum memory usage in bytes (triggers FIFO eviction)
+    MaxItems *int64  // Maximum number of items in cache (triggers FIFO eviction)
 }
 
 type Cache[K comparable, V any] interface {
@@ -76,6 +79,7 @@ type Cache[K comparable, V any] interface {
     Get(key K) (V, bool)
     Delete(key K)
     Len() int
+    CurrentSize() int64
     Clear()
     CleanupExpired() int
 }
@@ -87,9 +91,23 @@ type Cache[K comparable, V any] interface {
 // Create cache with default config (no size limit)
 cache := cache.New[string, int](nil)
 
-// Create cache with custom config
+// Create cache with item limit
 maxItems := int64(1000)
 config := &cache.Config{
+    MaxItems: &maxItems,
+}
+cache := cache.New[string, int](config)
+
+// Create cache with memory size limit (FIFO eviction)
+maxSize := int64(1024 * 1024) // 1MB
+config := &cache.Config{
+    Size: &maxSize,
+}
+cache := cache.New[string, int](config)
+
+// Create cache with both limits
+config := &cache.Config{
+    Size:     &maxSize,
     MaxItems: &maxItems,
 }
 cache := cache.New[string, int](config)
@@ -127,6 +145,12 @@ cache.Delete("key1")
 ```go
 size := cache.Len()
 fmt.Printf("Current cache size: %d\n", size)
+```
+
+#### Get Memory Usage
+```go
+memoryUsage := cache.CurrentSize()
+fmt.Printf("Current memory usage: %d bytes\n", memoryUsage)
 ```
 
 #### Clear All Items
@@ -219,8 +243,10 @@ func main() {
 - **Read Operations**: O(1) average case with concurrent read support
 - **Write Operations**: O(1) average case with exclusive write access
 - **Memory Usage**: Stores both slice and map for efficient access and ordering
-- **Eviction**: O(n) when updating indices after LRU eviction
+- **Item-Based Eviction**: O(n) when updating indices after LRU eviction
+- **Size-Based Eviction**: O(n) when evicting multiple items to fit memory limit
 - **Cleanup**: O(n) when cleaning expired items
+- **Size Calculation**: Uses reflection for accurate memory estimation
 
 ## Thread Safety
 
