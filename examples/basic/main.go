@@ -59,7 +59,7 @@ func ttlExample() {
 
 	// Set value with 2-second TTL
 	ttl := 2 * time.Second
-	myCache.SetWithTTL("session", "user123", &ttl)
+	myCache.SetWithTTL("session", "user123", ttl)
 
 	// Check immediately
 	if value, found := myCache.Get("session"); found {

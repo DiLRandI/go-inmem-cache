@@ -14,7 +14,7 @@ type Config struct {
 
 type Cache[K comparable, V any] interface {
 	Set(key K, value V)
-	SetWithTTL(key K, value V, ttl *time.Duration)
+	SetWithTTL(key K, value V, ttl time.Duration)
 	Get(key K) (V, bool)
 	Delete(key K)
 	Len() int
@@ -60,10 +60,10 @@ func (c *cache[K, V]) Set(key K, value V) {
 	c.setItem(key, value, nil)
 }
 
-func (c *cache[K, V]) SetWithTTL(key K, value V, ttl *time.Duration) {
+func (c *cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.setItem(key, value, ttl)
+	c.setItem(key, value, &ttl)
 }
 
 func (c *cache[K, V]) Get(key K) (V, bool) {

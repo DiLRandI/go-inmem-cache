@@ -1,14 +1,14 @@
 # go-inmem-cache
 
-A high-performance, thread-safe, generic in-memory cache implementation for Go with TTL (Time-To-Live) support and LRU (Least Recently Used) eviction policy.
+A high-performance, thread-safe, generic in-memory cache implementation for Go with TTL (Time-To-Live) support and dual eviction strategies.
 
 ## Features
 
 - 🚀 **Generic Type Support**: Works with any comparable key type and any value type
 - 🔒 **Thread-Safe**: Built with `sync.RWMutex` for concurrent access
-- ⏰ **TTL Support**: Set expiration times for cache entries
-- 📦 **LRU Eviction**: Automatically removes oldest items when cache reaches capacity
-- 💾 **Size-Based Eviction**: FIFO eviction when memory usage exceeds size limit
+- ⏰ **Clean TTL API**: Simple `SetWithTTL(key, value, duration)` - no pointers needed!
+- 📦 **Dual Eviction**: FIFO eviction based on item count OR memory size limits
+- 💾 **Memory Tracking**: Accurate size calculation and `CurrentSize()` method
 - 🧹 **Manual Cleanup**: Remove expired items on-demand
 - 📊 **Cache Statistics**: Get cache size, item count, and memory usage
 - 🎯 **Zero Dependencies**: Uses only Go standard library
@@ -32,34 +32,29 @@ import (
 )
 
 func main() {
-    // Create a new cache with maximum 100 items and 1MB memory limit
-    maxItems := int64(100)
-    maxSize := int64(1024 * 1024) // 1MB
+    // Create a cache with both size and item limits
     config := &cache.Config{
-        MaxItems: &maxItems,
-        Size:     &maxSize,
+        Size:     &[]int64{1024 * 1024}[0], // 1MB memory limit
+        MaxItems: &[]int64{100}[0],         // 100 item limit
     }
     
-    // Create cache for string keys and int values
-    myCache := cache.New[string, int](config)
+    // Create cache for string keys and string values
+    myCache := cache.New[string, string](config)
     
     // Set a value
-    myCache.Set("user:123", 42)
+    myCache.Set("user:123", "John Doe")
+    
+    // Set a value with TTL (clean API - no pointers!)
+    myCache.SetWithTTL("session:abc", "active", 30*time.Minute)
     
     // Get a value
     if value, found := myCache.Get("user:123"); found {
-        fmt.Printf("Found value: %d\n", value)
+        fmt.Printf("Found value: %s\n", value)
     }
     
-    // Set a value with TTL (expires in 5 seconds)
-    ttl := 5 * time.Second
-    myCache.SetWithTTL("session:abc", 999, &ttl)
-    
-    // Delete a value
-    myCache.Delete("user:123")
-    
-    // Get cache size
-    fmt.Printf("Cache size: %d\n", myCache.Len())
+    // Check cache stats
+    fmt.Printf("Items: %d, Memory: %d bytes\n", 
+        myCache.Len(), myCache.CurrentSize())
 }
 ```
 
@@ -75,7 +70,7 @@ type Config struct {
 
 type Cache[K comparable, V any] interface {
     Set(key K, value V)
-    SetWithTTL(key K, value V, ttl *time.Duration)
+    SetWithTTL(key K, value V, ttl time.Duration)
     Get(key K) (V, bool)
     Delete(key K)
     Len() int
@@ -88,46 +83,47 @@ type Cache[K comparable, V any] interface {
 ### Creating a Cache
 
 ```go
-// Create cache with default config (no size limit)
-cache := cache.New[string, int](nil)
+// Create cache with default config (no limits)
+myCache := cache.New[string, string](nil)
 
-// Create cache with item limit
+// Create cache with item limit only
 maxItems := int64(1000)
 config := &cache.Config{
     MaxItems: &maxItems,
 }
-cache := cache.New[string, int](config)
+myCache := cache.New[string, string](config)
 
-// Create cache with memory size limit (FIFO eviction)
+// Create cache with memory size limit only (FIFO eviction)
 maxSize := int64(1024 * 1024) // 1MB
 config := &cache.Config{
     Size: &maxSize,
 }
-cache := cache.New[string, int](config)
+myCache := cache.New[string, string](config)
 
 // Create cache with both limits
 config := &cache.Config{
     Size:     &maxSize,
     MaxItems: &maxItems,
 }
-cache := cache.New[string, int](config)
+myCache := cache.New[string, string](config)
 ```
 
 ### Basic Operations
 
 #### Set
+
 ```go
 // Set a value without expiration
-cache.Set("key1", "value1")
+myCache.Set("key1", "value1")
 
-// Set a value with TTL
-ttl := 30 * time.Second
-cache.SetWithTTL("key2", "value2", &ttl)
+// Set a value with TTL (clean API - no pointers!)
+myCache.SetWithTTL("key2", "value2", 30*time.Second)
 ```
 
 #### Get
+
 ```go
-if value, found := cache.Get("key1"); found {
+if value, found := myCache.Get("key1"); found {
     fmt.Printf("Value: %s\n", value)
 } else {
     fmt.Println("Key not found or expired")
@@ -135,32 +131,37 @@ if value, found := cache.Get("key1"); found {
 ```
 
 #### Delete
+
 ```go
-cache.Delete("key1")
+myCache.Delete("key1")
 ```
 
 ### Cache Management
 
 #### Get Cache Size
+
 ```go
-size := cache.Len()
+size := myCache.Len()
 fmt.Printf("Current cache size: %d\n", size)
 ```
 
 #### Get Memory Usage
+
 ```go
-memoryUsage := cache.CurrentSize()
+memoryUsage := myCache.CurrentSize()
 fmt.Printf("Current memory usage: %d bytes\n", memoryUsage)
 ```
 
 #### Clear All Items
+
 ```go
-cache.Clear()
+myCache.Clear()
 ```
 
 #### Cleanup Expired Items
+
 ```go
-removedCount := cache.CleanupExpired()
+removedCount := myCache.CleanupExpired()
 fmt.Printf("Removed %d expired items\n", removedCount)
 ```
 
@@ -191,13 +192,13 @@ productCache.Set(ProductID("prod-123"), 29.99)
 ### TTL Examples
 
 ```go
-// Different TTL durations
-cache.SetWithTTL("short", "value", &[]time.Duration{5 * time.Second}[0])
-cache.SetWithTTL("medium", "value", &[]time.Duration{5 * time.Minute}[0])
-cache.SetWithTTL("long", "value", &[]time.Duration{1 * time.Hour}[0])
+// Different TTL durations - clean API without pointers!
+myCache.SetWithTTL("short", "value", 5*time.Second)
+myCache.SetWithTTL("medium", "value", 5*time.Minute)
+myCache.SetWithTTL("long", "value", 1*time.Hour)
 
-// Items without TTL never expire (unless evicted by LRU)
-cache.Set("permanent", "value")
+// Items without TTL never expire (unless evicted by FIFO)
+myCache.Set("permanent", "value")
 ```
 
 ### Concurrent Usage
@@ -240,13 +241,12 @@ func main() {
 
 ## Performance Characteristics
 
-- **Read Operations**: O(1) average case with concurrent read support
+- **Read Operations**: O(1) average case with concurrent read support via `sync.RWMutex`
 - **Write Operations**: O(1) average case with exclusive write access
-- **Memory Usage**: Stores both slice and map for efficient access and ordering
-- **Item-Based Eviction**: O(n) when updating indices after LRU eviction
-- **Size-Based Eviction**: O(n) when evicting multiple items to fit memory limit
+- **Memory Usage**: Accurate size tracking using reflection for all data types
+- **FIFO Eviction**: O(n) when removing oldest items due to size/count limits
 - **Cleanup**: O(n) when cleaning expired items
-- **Size Calculation**: Uses reflection for accurate memory estimation
+- **Thread Safety**: Uses `sync.RWMutex` for optimal concurrent performance
 
 ## Thread Safety
 
@@ -280,15 +280,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Running the Examples
 
+The `examples/` directory contains comprehensive demonstrations:
+
 ```bash
-cd examples
+# Run the comprehensive example (all features)
+cd examples/basic
+go run main.go
+
+# Run the TTL-focused example  
+cd examples/ttl
 go run main.go
 ```
 
-The example file demonstrates:
+Each example demonstrates:
+
 - Basic cache operations (set, get, delete)
-- TTL functionality with expiration
-- LRU eviction when cache reaches capacity
+- TTL functionality with the clean API
+- FIFO eviction with size and item limits
+- Memory usage tracking
 - Using different key/value types
 
 ### Running Benchmarks
@@ -298,12 +307,13 @@ go test -bench=. -benchmem
 ```
 
 Example benchmark results:
-```
-BenchmarkCacheSet-16                	 2432089	       501.6 ns/op	     431 B/op	       2 allocs/op
-BenchmarkCacheGet-16                	14751292	        84.10 ns/op	      13 B/op	       1 allocs/op
-BenchmarkCacheSetWithTTL-16         	 2541315	       500.1 ns/op	     414 B/op	       2 allocs/op
-BenchmarkCacheConcurrentRead-16     	19445493	        70.28 ns/op	      13 B/op	       1 allocs/op
-BenchmarkCacheConcurrentWrite-16    	 3446289	       367.5 ns/op	      55 B/op	       1 allocs/op
+
+```text
+BenchmarkCacheSet-16                 2452876       505.1 ns/op     448 B/op      2 allocs/op
+BenchmarkCacheGet-16                13508820        80.41 ns/op     13 B/op      1 allocs/op
+BenchmarkCacheSetWithTTL-16          2265871       535.3 ns/op     491 B/op      3 allocs/op
+BenchmarkCacheConcurrentRead-16     28890189        77.49 ns/op     13 B/op      1 allocs/op
+BenchmarkCacheConcurrentWrite-16     3420054       343.2 ns/op      57 B/op      1 allocs/op
 ```
 
 Check out the `cache_test.go` file for more detailed examples and usage patterns.

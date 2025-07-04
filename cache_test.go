@@ -65,7 +65,7 @@ func TestConcurrentTTL(t *testing.T) {
 			key := fmt.Sprintf("ttl-key-%d", id)
 			value := fmt.Sprintf("value-%d", id)
 
-			cache.SetWithTTL(key, value, &ttl)
+			cache.SetWithTTL(key, value, ttl)
 
 			// Should be available immediately
 			if _, ok := cache.Get(key); !ok {
@@ -90,8 +90,8 @@ func TestCleanupExpired(t *testing.T) {
 	ttl := 50 * time.Millisecond
 
 	// Add some items with TTL
-	cache.SetWithTTL("key1", "value1", &ttl)
-	cache.SetWithTTL("key2", "value2", &ttl)
+	cache.SetWithTTL("key1", "value1", ttl)
+	cache.SetWithTTL("key2", "value2", ttl)
 	cache.Set("key3", "value3") // No TTL
 
 	// Initial length should be 3

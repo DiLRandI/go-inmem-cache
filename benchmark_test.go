@@ -39,7 +39,7 @@ func BenchmarkCacheSetWithTTL(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.SetWithTTL(key, i, &ttl)
+		cache.SetWithTTL(key, i, ttl)
 	}
 }
 
