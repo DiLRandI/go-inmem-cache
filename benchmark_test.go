@@ -12,7 +12,8 @@ func BenchmarkCacheSet(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.Set(key, i)
+		value := i
+		cache.Set(key, &value)
 	}
 }
 
@@ -22,7 +23,8 @@ func BenchmarkCacheGet(b *testing.B) {
 	// Pre-populate cache
 	for i := 0; i < 1000; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.Set(key, i)
+		value := i
+		cache.Set(key, &value)
 	}
 
 	b.ResetTimer()
@@ -39,7 +41,8 @@ func BenchmarkCacheSetWithTTL(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.SetWithTTL(key, i, ttl)
+		value := i
+		cache.SetWithTTL(key, &value, ttl)
 	}
 }
 
@@ -49,7 +52,8 @@ func BenchmarkCacheConcurrentRead(b *testing.B) {
 	// Pre-populate cache
 	for i := 0; i < 1000; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.Set(key, i)
+		value := i
+		cache.Set(key, &value)
 	}
 
 	b.ResetTimer()
@@ -71,7 +75,8 @@ func BenchmarkCacheConcurrentWrite(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			key := fmt.Sprintf("key-%d", i)
-			cache.Set(key, i)
+			value := i
+			cache.Set(key, &value)
 			i++
 		}
 	})
@@ -83,7 +88,8 @@ func BenchmarkCacheDelete(b *testing.B) {
 	// Pre-populate cache
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		cache.Set(key, i)
+		value := i
+		cache.Set(key, &value)
 	}
 
 	b.ResetTimer()

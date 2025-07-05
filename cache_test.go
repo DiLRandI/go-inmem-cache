@@ -26,11 +26,11 @@ func TestConcurrentAccess(t *testing.T) {
 				value := id*1000 + j
 
 				// Set value
-				cache.Set(key, value)
+				cache.Set(key, &value)
 
 				// Get value
-				if val, ok := cache.Get(key); ok && val != value {
-					t.Errorf("Expected %d, got %d", value, val)
+				if val, ok := cache.Get(key); ok && *val != value {
+					t.Errorf("Expected %d, got %d", value, *val)
 				}
 
 				// Delete some values
@@ -65,7 +65,7 @@ func TestConcurrentTTL(t *testing.T) {
 			key := fmt.Sprintf("ttl-key-%d", id)
 			value := fmt.Sprintf("value-%d", id)
 
-			cache.SetWithTTL(key, value, ttl)
+			cache.SetWithTTL(key, &value, ttl)
 
 			// Should be available immediately
 			if _, ok := cache.Get(key); !ok {
@@ -90,9 +90,12 @@ func TestCleanupExpired(t *testing.T) {
 	ttl := 50 * time.Millisecond
 
 	// Add some items with TTL
-	cache.SetWithTTL("key1", "value1", ttl)
-	cache.SetWithTTL("key2", "value2", ttl)
-	cache.Set("key3", "value3") // No TTL
+	value1 := "value1"
+	value2 := "value2"
+	value3 := "value3"
+	cache.SetWithTTL("key1", &value1, ttl)
+	cache.SetWithTTL("key2", &value2, ttl)
+	cache.Set("key3", &value3) // No TTL
 
 	// Initial length should be 3
 	if cache.Len() != 3 {
@@ -121,7 +124,7 @@ func TestCleanupExpired(t *testing.T) {
 	}
 
 	// The remaining item should be key3
-	if val, ok := cache.Get("key3"); !ok || val != "value3" {
+	if val, ok := cache.Get("key3"); !ok || *val != "value3" {
 		t.Errorf("Expected key3 to still exist with value 'value3'")
 	}
 }
@@ -133,22 +136,26 @@ func TestSizeBasedEviction(t *testing.T) {
 	cache := New[string, string](config)
 
 	// Add first item
-	cache.Set("item1", "short")
+	item1 := "short"
+	cache.Set("item1", &item1)
 	size1 := cache.CurrentSize()
 	fmt.Printf("After item1: size=%d bytes, len=%d\n", size1, cache.Len())
 
 	// Add second item
-	cache.Set("item2", "medium length value")
+	item2 := "medium length value"
+	cache.Set("item2", &item2)
 	size2 := cache.CurrentSize()
 	fmt.Printf("After item2: size=%d bytes, len=%d\n", size2, cache.Len())
 
 	// Add third item
-	cache.Set("item3", "another value")
+	item3 := "another value"
+	cache.Set("item3", &item3)
 	size3 := cache.CurrentSize()
 	fmt.Printf("After item3: size=%d bytes, len=%d\n", size3, cache.Len())
 
 	// Add a moderately large item that should trigger some eviction
-	cache.Set("item4", "this is a longer string that should trigger eviction")
+	item4 := "this is a longer string that should trigger eviction"
+	cache.Set("item4", &item4)
 
 	finalSize := cache.CurrentSize()
 	finalLen := cache.Len()
@@ -176,7 +183,8 @@ func TestSizeTracking(t *testing.T) {
 	}
 
 	// Add an item
-	cache.Set("key1", "value1")
+	value1 := "value1"
+	cache.Set("key1", &value1)
 	size1 := cache.CurrentSize()
 
 	if size1 <= 0 {
@@ -184,7 +192,8 @@ func TestSizeTracking(t *testing.T) {
 	}
 
 	// Add another item
-	cache.Set("key2", "longer value string")
+	value2 := "longer value string"
+	cache.Set("key2", &value2)
 	size2 := cache.CurrentSize()
 
 	if size2 <= size1 {
@@ -217,8 +226,10 @@ func TestBothSizeAndItemLimits(t *testing.T) {
 	cache := New[string, string](config)
 
 	// Add items
-	cache.Set("item1", "value1")
-	cache.Set("item2", "value2")
+	value1 := "value1"
+	value2 := "value2"
+	cache.Set("item1", &value1)
+	cache.Set("item2", &value2)
 
 	// Should have 2 items
 	if cache.Len() != 2 {
@@ -226,7 +237,8 @@ func TestBothSizeAndItemLimits(t *testing.T) {
 	}
 
 	// Add third item - should trigger item-based eviction
-	cache.Set("item3", "value3")
+	value3 := "value3"
+	cache.Set("item3", &value3)
 
 	// Should still have 2 items (item1 evicted)
 	if cache.Len() != 2 {
@@ -244,5 +256,201 @@ func TestBothSizeAndItemLimits(t *testing.T) {
 	}
 	if _, found := cache.Get("item3"); !found {
 		t.Errorf("item3 should exist")
+	}
+}
+
+func TestEdgeCases(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Test setting nil value
+	var nilValue *string
+	cache.Set("nil-key", nilValue)
+
+	if val, found := cache.Get("nil-key"); !found || val != nil {
+		t.Errorf("Expected nil value to be stored and retrieved")
+	}
+
+	// Test empty key
+	value := "test"
+	cache.Set("", &value)
+	if val, found := cache.Get(""); !found || *val != "test" {
+		t.Errorf("Expected empty key to work")
+	}
+
+	// Test overwriting existing key
+	value1 := "original"
+	value2 := "updated"
+	cache.Set("overwrite", &value1)
+	cache.Set("overwrite", &value2)
+
+	if val, found := cache.Get("overwrite"); !found || *val != "updated" {
+		t.Errorf("Expected value to be overwritten")
+	}
+
+	// Should only have 3 items (nil-key, empty key, overwrite)
+	if cache.Len() != 3 {
+		t.Errorf("Expected 3 items, got %d", cache.Len())
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	// Test with nil config
+	cache1 := New[int, string](nil)
+	testVal := "test"
+	cache1.Set(1, &testVal)
+
+	if cache1.Len() != 1 {
+		t.Errorf("Cache with nil config should work")
+	}
+
+	// Test with empty config
+	cache2 := New[int, string](&Config{})
+	cache2.Set(1, &testVal)
+
+	if cache2.Len() != 1 {
+		t.Errorf("Cache with empty config should work")
+	}
+}
+
+func TestTTLEdgeCases(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Test zero TTL (should expire immediately)
+	value := "expires-now"
+	cache.SetWithTTL("zero-ttl", &value, 0)
+
+	// Should be expired immediately
+	if _, found := cache.Get("zero-ttl"); found {
+		t.Errorf("Item with zero TTL should be expired immediately")
+	}
+
+	// Test very short TTL
+	shortValue := "expires-soon"
+	cache.SetWithTTL("short-ttl", &shortValue, 1*time.Nanosecond)
+
+	// Give it a moment to expire
+	time.Sleep(1 * time.Millisecond)
+
+	if _, found := cache.Get("short-ttl"); found {
+		t.Errorf("Item with very short TTL should be expired")
+	}
+
+	// Test updating TTL by setting same key again
+	longValue := "long-lived"
+	cache.SetWithTTL("update-ttl", &longValue, 1*time.Hour)
+
+	// Update with shorter TTL
+	cache.SetWithTTL("update-ttl", &longValue, 1*time.Nanosecond)
+	time.Sleep(1 * time.Millisecond)
+
+	if _, found := cache.Get("update-ttl"); found {
+		t.Errorf("Updated TTL should take effect")
+	}
+}
+
+func TestDeleteNonExistentKey(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Deleting non-existent key should not panic
+	cache.Delete("non-existent")
+
+	// Add an item and delete it twice
+	value := "test"
+	cache.Set("test-key", &value)
+	cache.Delete("test-key")
+	cache.Delete("test-key") // Second delete should be safe
+
+	if cache.Len() != 0 {
+		t.Errorf("Cache should be empty after deletes")
+	}
+}
+
+func TestClearEmptyCache(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Clear empty cache should be safe
+	cache.Clear()
+
+	if cache.Len() != 0 || cache.CurrentSize() != 0 {
+		t.Errorf("Cleared cache should have 0 items and 0 size")
+	}
+}
+
+func TestCleanupEmptyCache(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Cleanup empty cache should return 0
+	removed := cache.CleanupExpired()
+
+	if removed != 0 {
+		t.Errorf("Cleanup of empty cache should return 0, got %d", removed)
+	}
+}
+
+func TestLargeNumberOfItems(t *testing.T) {
+	cache := New[int, string](&Config{})
+
+	// Add 1000 items
+	for i := 0; i < 1000; i++ {
+		value := fmt.Sprintf("value-%d", i)
+		cache.Set(i, &value)
+	}
+
+	if cache.Len() != 1000 {
+		t.Errorf("Expected 1000 items, got %d", cache.Len())
+	}
+
+	// Verify random items exist
+	for i := 0; i < 10; i++ {
+		key := i * 100 // 0, 100, 200, ... 900
+		if val, found := cache.Get(key); !found || *val != fmt.Sprintf("value-%d", key) {
+			t.Errorf("Expected to find value-%d", key)
+		}
+	}
+
+	// Clear and verify
+	cache.Clear()
+	if cache.Len() != 0 {
+		t.Errorf("Cache should be empty after clear")
+	}
+}
+
+func TestIntegerKeys(t *testing.T) {
+	cache := New[int, float64](&Config{})
+
+	value1 := 3.14
+	value2 := 2.71
+	cache.Set(1, &value1)
+	cache.Set(2, &value2)
+
+	if val, found := cache.Get(1); !found || *val != 3.14 {
+		t.Errorf("Expected 3.14, got %v", val)
+	}
+
+	if val, found := cache.Get(2); !found || *val != 2.71 {
+		t.Errorf("Expected 2.71, got %v", val)
+	}
+}
+
+func TestStructValues(t *testing.T) {
+	type Person struct {
+		Name string
+		Age  int
+	}
+
+	cache := New[string, Person](&Config{})
+
+	person1 := Person{Name: "Alice", Age: 30}
+	person2 := Person{Name: "Bob", Age: 25}
+
+	cache.Set("person1", &person1)
+	cache.Set("person2", &person2)
+
+	if val, found := cache.Get("person1"); !found || val.Name != "Alice" || val.Age != 30 {
+		t.Errorf("Expected Alice, 30, got %v", val)
+	}
+
+	if val, found := cache.Get("person2"); !found || val.Name != "Bob" || val.Age != 25 {
+		t.Errorf("Expected Bob, 25, got %v", val)
 	}
 }
