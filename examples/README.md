@@ -9,8 +9,8 @@ This directory contains working examples demonstrating the go-inmem-cache librar
 **Run:** `cd basic && go run main.go`
 
 Comprehensive demonstration of all features:
-- Basic cache operations (set, get, delete)  
-- TTL functionality with the clean API (no pointers!)
+- Basic cache operations (set, get, delete) using pointer-based API
+- TTL functionality with `SetWithTTL(key, &value, duration)`
 - FIFO eviction when item count limit is reached
 - Size-based FIFO eviction with memory limits
 - Using different key/value types (strings, structs, integers)
@@ -21,7 +21,8 @@ Comprehensive demonstration of all features:
 **Run:** `cd ttl && go run main.go`
 
 Focused demonstration of TTL (Time-To-Live) functionality:
-- Clean `SetWithTTL(key, value, duration)` API
+
+- Pointer-based `SetWithTTL(key, &value, duration)` API
 - Different expiration times (seconds, minutes, hours)
 - Real-time expiration demonstration
 - Memory usage tracking

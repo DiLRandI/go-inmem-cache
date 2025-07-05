@@ -6,7 +6,7 @@ A high-performance, thread-safe, generic in-memory cache implementation for Go w
 
 - 🚀 **Generic Type Support**: Works with any comparable key type and any value type
 - 🔒 **Thread-Safe**: Built with `sync.RWMutex` for concurrent access
-- ⏰ **Clean TTL API**: Simple `SetWithTTL(key, value, duration)` - no pointers needed!
+- ⏰ **TTL Support**: Set values with Time-To-Live using `SetWithTTL(key, &value, duration)`
 - 📦 **Dual Eviction**: FIFO eviction based on item count OR memory size limits
 - 💾 **Memory Tracking**: Accurate size calculation and `CurrentSize()` method
 - 🧹 **Manual Cleanup**: Remove expired items on-demand
@@ -42,14 +42,16 @@ func main() {
     myCache := cache.New[string, string](config)
     
     // Set a value
-    myCache.Set("user:123", "John Doe")
+    name := "John Doe"
+    myCache.Set("user:123", &name)
     
-    // Set a value with TTL (clean API - no pointers!)
-    myCache.SetWithTTL("session:abc", "active", 30*time.Minute)
+    // Set a value with TTL
+    session := "active"
+    myCache.SetWithTTL("session:abc", &session, 30*time.Minute)
     
     // Get a value
-    if value, found := myCache.Get("user:123"); found {
-        fmt.Printf("Found value: %s\n", value)
+    if valuePtr, found := myCache.Get("user:123"); found {
+        fmt.Printf("Found value: %s\n", *valuePtr)
     }
     
     // Check cache stats
@@ -69,9 +71,9 @@ type Config struct {
 }
 
 type Cache[K comparable, V any] interface {
-    Set(key K, value V)
-    SetWithTTL(key K, value V, ttl time.Duration)
-    Get(key K) (V, bool)
+    Set(key K, value *V)
+    SetWithTTL(key K, value *V, ttl time.Duration)
+    Get(key K) (*V, bool)
     Delete(key K)
     Len() int
     CurrentSize() int64
@@ -114,17 +116,19 @@ myCache := cache.New[string, string](config)
 
 ```go
 // Set a value without expiration
-myCache.Set("key1", "value1")
+name := "value1"
+myCache.Set("key1", &name)
 
-// Set a value with TTL (clean API - no pointers!)
-myCache.SetWithTTL("key2", "value2", 30*time.Second)
+// Set a value with TTL
+session := "value2"
+myCache.SetWithTTL("key2", &session, 30*time.Second)
 ```
 
 #### Get
 
 ```go
-if value, found := myCache.Get("key1"); found {
-    fmt.Printf("Value: %s\n", value)
+if valuePtr, found := myCache.Get("key1"); found {
+    fmt.Printf("Value: %s\n", *valuePtr)
 } else {
     fmt.Println("Key not found or expired")
 }
@@ -177,28 +181,35 @@ type User struct {
 }
 
 userCache := cache.New[string, User](nil)
-userCache.Set("user:123", User{ID: 123, Name: "John"})
+user := User{ID: 123, Name: "John"}
+userCache.Set("user:123", &user)
 
 // Integer keys, string values
 intCache := cache.New[int, string](nil)
-intCache.Set(42, "answer")
+answer := "answer"
+intCache.Set(42, &answer)
 
 // Custom types as keys (must be comparable)
 type ProductID string
 productCache := cache.New[ProductID, float64](nil)
-productCache.Set(ProductID("prod-123"), 29.99)
+price := 29.99
+productCache.Set(ProductID("prod-123"), &price)
 ```
 
 ### TTL Examples
 
 ```go
-// Different TTL durations - clean API without pointers!
-myCache.SetWithTTL("short", "value", 5*time.Second)
-myCache.SetWithTTL("medium", "value", 5*time.Minute)
-myCache.SetWithTTL("long", "value", 1*time.Hour)
+// Different TTL durations
+short := "value"
+medium := "value"
+long := "value"
+myCache.SetWithTTL("short", &short, 5*time.Second)
+myCache.SetWithTTL("medium", &medium, 5*time.Minute)
+myCache.SetWithTTL("long", &long, 1*time.Hour)
 
 // Items without TTL never expire (unless evicted by FIFO)
-myCache.Set("permanent", "value")
+permanent := "value"
+myCache.Set("permanent", &permanent)
 ```
 
 ### Concurrent Usage
@@ -224,13 +235,14 @@ func main() {
             defer wg.Done()
             
             key := fmt.Sprintf("key-%d", id)
+            value := id * 10
             
             // Safe concurrent writes
-            myCache.Set(key, id*10)
+            myCache.Set(key, &value)
             
             // Safe concurrent reads
-            if value, found := myCache.Get(key); found {
-                fmt.Printf("Goroutine %d: %d\n", id, value)
+            if valuePtr, found := myCache.Get(key); found {
+                fmt.Printf("Goroutine %d: %d\n", id, *valuePtr)
             }
         }(i)
     }

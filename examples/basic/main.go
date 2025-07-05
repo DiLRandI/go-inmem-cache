@@ -34,17 +34,20 @@ func basicExample() {
 	myCache := cache.New[string, string](nil)
 
 	// Set some values
-	myCache.Set("name", "John Doe")
-	myCache.Set("city", "New York")
-	myCache.Set("country", "USA")
+	name := "John Doe"
+	city := "New York"
+	country := "USA"
+	myCache.Set("name", &name)
+	myCache.Set("city", &city)
+	myCache.Set("country", &country)
 
 	// Get values
-	if name, found := myCache.Get("name"); found {
-		fmt.Printf("Name: %s\n", name)
+	if namePtr, found := myCache.Get("name"); found {
+		fmt.Printf("Name: %s\n", *namePtr)
 	}
 
-	if city, found := myCache.Get("city"); found {
-		fmt.Printf("City: %s\n", city)
+	if cityPtr, found := myCache.Get("city"); found {
+		fmt.Printf("City: %s\n", *cityPtr)
 	}
 
 	fmt.Printf("Cache size: %d\n", myCache.Len())
@@ -59,17 +62,18 @@ func ttlExample() {
 
 	// Set value with 2-second TTL
 	ttl := 2 * time.Second
-	myCache.SetWithTTL("session", "user123", ttl)
+	session := "user123"
+	myCache.SetWithTTL("session", &session, ttl)
 
 	// Check immediately
-	if value, found := myCache.Get("session"); found {
-		fmt.Printf("Session found: %s\n", value)
+	if valuePtr, found := myCache.Get("session"); found {
+		fmt.Printf("Session found: %s\n", *valuePtr)
 	}
 
 	// Wait for 1 second
 	time.Sleep(1 * time.Second)
-	if value, found := myCache.Get("session"); found {
-		fmt.Printf("Session still valid: %s\n", value)
+	if valuePtr, found := myCache.Get("session"); found {
+		fmt.Printf("Session still valid: %s\n", *valuePtr)
 	}
 
 	// Wait for TTL to expire
@@ -86,13 +90,15 @@ func lruExample() {
 	myCache := cache.New[string, int](config)
 
 	// Add items
-	myCache.Set("item1", 1)
-	myCache.Set("item2", 2)
-	myCache.Set("item3", 3)
+	item1, item2, item3 := 1, 2, 3
+	myCache.Set("item1", &item1)
+	myCache.Set("item2", &item2)
+	myCache.Set("item3", &item3)
 	fmt.Printf("Cache size: %d\n", myCache.Len())
 
 	// Add fourth item - should evict oldest (item1)
-	myCache.Set("item4", 4)
+	item4 := 4
+	myCache.Set("item4", &item4)
 	fmt.Printf("Cache size after adding 4th item: %d\n", myCache.Len())
 
 	// item1 should be gone
@@ -101,8 +107,8 @@ func lruExample() {
 	}
 
 	// Other items should still exist
-	if value, found := myCache.Get("item2"); found {
-		fmt.Printf("item2 still exists: %d\n", value)
+	if valuePtr, found := myCache.Get("item2"); found {
+		fmt.Printf("item2 still exists: %d\n", *valuePtr)
 	}
 }
 
@@ -113,17 +119,19 @@ func sizeExample() {
 	myCache := cache.New[string, string](config)
 
 	// Add items and show memory usage
-	myCache.Set("small1", "x")
+	small1, small2, small3 := "x", "y", "z"
+	myCache.Set("small1", &small1)
 	fmt.Printf("After adding small1: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
 
-	myCache.Set("small2", "y")
+	myCache.Set("small2", &small2)
 	fmt.Printf("After adding small2: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
 
-	myCache.Set("small3", "z")
+	myCache.Set("small3", &small3)
 	fmt.Printf("After adding small3: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
 
 	// Add a larger item that should trigger size-based eviction
-	myCache.Set("large", "this is a much longer string that will trigger eviction")
+	large := "this is a much longer string that will trigger eviction"
+	myCache.Set("large", &large)
 	fmt.Printf("After adding large item: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
 
 	// Check which items remain
@@ -150,19 +158,20 @@ func typeExample() {
 	user1 := User{ID: 1, Name: "Alice", Age: 30}
 	user2 := User{ID: 2, Name: "Bob", Age: 25}
 
-	userCache.Set("user:1", user1)
-	userCache.Set("user:2", user2)
+	userCache.Set("user:1", &user1)
+	userCache.Set("user:2", &user2)
 
-	if user, found := userCache.Get("user:1"); found {
-		fmt.Printf("User found: %+v\n", user)
+	if userPtr, found := userCache.Get("user:1"); found {
+		fmt.Printf("User found: %+v\n", *userPtr)
 	}
 
 	// Cache with int keys and float values
 	priceCache := cache.New[int, float64](nil)
-	priceCache.Set(12345, 29.99)
-	priceCache.Set(67890, 49.99)
+	price1, price2 := 29.99, 49.99
+	priceCache.Set(12345, &price1)
+	priceCache.Set(67890, &price2)
 
-	if price, found := priceCache.Get(12345); found {
-		fmt.Printf("Product 12345 price: $%.2f\n", price)
+	if pricePtr, found := priceCache.Get(12345); found {
+		fmt.Printf("Product 12345 price: $%.2f\n", *pricePtr)
 	}
 }
