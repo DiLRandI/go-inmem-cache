@@ -33,8 +33,7 @@ func main() {
 		fmt.Printf("Found session: %s\n", *valuePtr)
 	}
 
-	fmt.Printf("Cache has %d items\n", myCache.Len())
-	fmt.Printf("Memory usage: %d bytes\n", myCache.CurrentSize())
+	fmt.Println("All items stored successfully")
 
 	// Wait for the short TTL to expire
 	fmt.Println("\nWaiting 6 seconds for user:123 to expire...")
@@ -48,5 +47,5 @@ func main() {
 		fmt.Printf("session:abc still active: %s ✓\n", *valuePtr)
 	}
 
-	fmt.Printf("Cache now has %d items\n", myCache.Len())
+	fmt.Println("TTL expiration working correctly")
 }

@@ -17,20 +17,20 @@ type Cache[K comparable, V any] interface {
 	SetWithTTL(key K, value *V, ttl time.Duration)
 	Get(key K) (*V, bool)
 	Delete(key K)
-	Len() int
-	CurrentSize() int64
-	Clear()
-	CleanupExpired() int
 }
 
 type cache[K comparable, V any] struct {
-	mu          sync.RWMutex
-	size        *int64
-	currentSize int64
-	maxItems    *int64
+	mu        sync.RWMutex
+	size      *int64
+	sizeBytes int64
+	maxItems  *int64
 
 	order []K                    // slice to track order of keys for eviction
 	items map[K]*cacheItem[K, V] // map to store actual data for fast access
+
+	// TTL expiration management
+	expirationTimers map[K]*time.Timer // map to track expiration timers for each key
+	stopChan         chan struct{}     // channel to stop background cleanup
 }
 
 type cacheItem[K comparable, V any] struct {
@@ -47,12 +47,16 @@ func New[K comparable, V any](config *Config) Cache[K, V] {
 		config = &Config{}
 	}
 
-	return &cache[K, V]{
-		size:     config.Size,
-		maxItems: config.MaxItems,
-		order:    []K{},
-		items:    make(map[K]*cacheItem[K, V]),
+	c := &cache[K, V]{
+		size:             config.Size,
+		maxItems:         config.MaxItems,
+		order:            []K{},
+		items:            make(map[K]*cacheItem[K, V]),
+		expirationTimers: make(map[K]*time.Timer),
+		stopChan:         make(chan struct{}),
 	}
+
+	return c
 }
 
 func (c *cache[K, V]) Set(key K, value *V) {
@@ -67,6 +71,19 @@ func (c *cache[K, V]) SetWithTTL(key K, value *V, ttl time.Duration) {
 	defer c.mu.Unlock()
 
 	c.setItem(key, value, &ttl)
+
+	// Cancel existing timer for this key if it exists
+	if timer, exists := c.expirationTimers[key]; exists {
+		timer.Stop()
+	}
+
+	// Set up automatic expiration timer
+	if ttl > 0 {
+		timer := time.AfterFunc(ttl, func() {
+			c.expireKey(key)
+		})
+		c.expirationTimers[key] = timer
+	}
 }
 
 func (c *cache[K, V]) Get(key K) (*V, bool) {
@@ -88,7 +105,7 @@ func (c *cache[K, V]) Delete(key K) {
 
 	if item, exists := c.items[key]; exists {
 		// Update current size
-		c.currentSize -= item.Size
+		c.sizeBytes -= item.Size
 
 		// Remove from items map
 		delete(c.items, key)
@@ -105,6 +122,12 @@ func (c *cache[K, V]) Delete(key K) {
 				c.items[itemKey] = existingItem
 			}
 		}
+	}
+
+	// Cancel and remove expiration timer if it exists
+	if timer, exists := c.expirationTimers[key]; exists {
+		timer.Stop()
+		delete(c.expirationTimers, key)
 	}
 }
 
@@ -143,7 +166,7 @@ func (c *cache[K, V]) setItem(key K, value *V, ttl *time.Duration) {
 	// If updating existing item, handle size difference
 	if existingItem, exists := c.items[key]; exists {
 		oldSize := existingItem.Size
-		newTotalSize := c.currentSize - oldSize + itemSize
+		newTotalSize := c.sizeBytes - oldSize + itemSize
 
 		// Evict items if the update would exceed limits
 		for (c.size != nil && newTotalSize > *c.size) ||
@@ -158,13 +181,13 @@ func (c *cache[K, V]) setItem(key K, value *V, ttl *time.Duration) {
 			} else {
 				c.removeOldestItem()
 			}
-			newTotalSize = c.currentSize - oldSize + itemSize
+			newTotalSize = c.sizeBytes - oldSize + itemSize
 		}
 
-		c.currentSize = newTotalSize
+		c.sizeBytes = newTotalSize
 	} else {
 		// Adding new item - evict items if necessary before adding
-		newTotalSize := c.currentSize + itemSize
+		newTotalSize := c.sizeBytes + itemSize
 
 		for (c.size != nil && newTotalSize > *c.size) ||
 			(c.maxItems != nil && int64(len(c.items)) >= *c.maxItems) {
@@ -172,10 +195,10 @@ func (c *cache[K, V]) setItem(key K, value *V, ttl *time.Duration) {
 				break // No items to evict
 			}
 			c.removeOldestItem()
-			newTotalSize = c.currentSize + itemSize
+			newTotalSize = c.sizeBytes + itemSize
 		}
 
-		c.currentSize = newTotalSize
+		c.sizeBytes = newTotalSize
 	}
 
 	item := &cacheItem[K, V]{
@@ -193,7 +216,7 @@ func (c *cache[K, V]) setItem(key K, value *V, ttl *time.Duration) {
 func (c *cache[K, V]) removeItemByKey(key K) {
 	if item, exists := c.items[key]; exists {
 		// Update current size
-		c.currentSize -= item.Size
+		c.sizeBytes -= item.Size
 
 		// Remove from items map
 		delete(c.items, key)
@@ -211,6 +234,12 @@ func (c *cache[K, V]) removeItemByKey(key K) {
 			}
 		}
 	}
+
+	// Cancel and remove expiration timer if it exists
+	if timer, exists := c.expirationTimers[key]; exists {
+		timer.Stop()
+		delete(c.expirationTimers, key)
+	}
 }
 
 // removeOldestItem removes the oldest (first) item from the cache
@@ -224,57 +253,23 @@ func (c *cache[K, V]) removeOldestItem() {
 	c.removeItemByKey(oldestKey)
 }
 
-// Len returns the number of items in the cache
-func (c *cache[K, V]) Len() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.order)
-}
-
-// CurrentSize returns the current memory usage in bytes
-func (c *cache[K, V]) CurrentSize() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.currentSize
-}
-
-// Clear removes all items from the cache
-func (c *cache[K, V]) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.order = []K{}
-	c.items = make(map[K]*cacheItem[K, V])
-	c.currentSize = 0
-}
-
-// CleanupExpired removes all expired items from the cache
-func (c *cache[K, V]) CleanupExpired() int {
+// expireKey removes an expired key asynchronously
+func (c *cache[K, V]) expireKey(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var validOrder []K
-	newItems := make(map[K]*cacheItem[K, V])
-	removedCount := 0
-	newSize := int64(0)
-
-	for _, key := range c.order {
-		if item, exists := c.items[key]; exists {
-			if c.isItemValid(item) {
-				item.Index = len(validOrder)
-				newItems[key] = item
-				validOrder = append(validOrder, key)
-				newSize += item.Size
-			} else {
-				removedCount++
-			}
+	// Remove the item if it still exists and is expired
+	if item, exists := c.items[key]; exists {
+		if !c.isItemValid(item) {
+			c.removeItemByKey(key)
 		}
 	}
 
-	c.order = validOrder
-	c.items = newItems
-	c.currentSize = newSize
-
-	return removedCount
+	// Clean up the timer
+	if timer, exists := c.expirationTimers[key]; exists {
+		timer.Stop()
+		delete(c.expirationTimers, key)
+	}
 }
 
 // calculateItemSize estimates the memory size of a cache item

@@ -50,11 +50,13 @@ func basicExample() {
 		fmt.Printf("City: %s\n", *cityPtr)
 	}
 
-	fmt.Printf("Cache size: %d\n", myCache.Len())
-
 	// Delete a value
 	myCache.Delete("city")
-	fmt.Printf("Cache size after deletion: %d\n", myCache.Len())
+
+	// Check if the deleted value is gone
+	if _, found := myCache.Get("city"); !found {
+		fmt.Println("City was successfully deleted")
+	}
 }
 
 func ttlExample() {
@@ -94,12 +96,12 @@ func lruExample() {
 	myCache.Set("item1", &item1)
 	myCache.Set("item2", &item2)
 	myCache.Set("item3", &item3)
-	fmt.Printf("Cache size: %d\n", myCache.Len())
+	fmt.Println("Added 3 items to cache")
 
 	// Add fourth item - should evict oldest (item1)
 	item4 := 4
 	myCache.Set("item4", &item4)
-	fmt.Printf("Cache size after adding 4th item: %d\n", myCache.Len())
+	fmt.Println("Added 4th item - oldest should be evicted")
 
 	// item1 should be gone
 	if _, found := myCache.Get("item1"); !found {
@@ -121,18 +123,18 @@ func sizeExample() {
 	// Add items and show memory usage
 	small1, small2, small3 := "x", "y", "z"
 	myCache.Set("small1", &small1)
-	fmt.Printf("After adding small1: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+	fmt.Println("Added small1")
 
 	myCache.Set("small2", &small2)
-	fmt.Printf("After adding small2: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+	fmt.Println("Added small2")
 
 	myCache.Set("small3", &small3)
-	fmt.Printf("After adding small3: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+	fmt.Println("Added small3")
 
 	// Add a larger item that should trigger size-based eviction
 	large := "this is a much longer string that will trigger eviction"
 	myCache.Set("large", &large)
-	fmt.Printf("After adding large item: %d bytes, %d items\n", myCache.CurrentSize(), myCache.Len())
+	fmt.Println("Added large item - may trigger eviction")
 
 	// Check which items remain
 	for _, key := range []string{"small1", "small2", "small3", "large"} {
