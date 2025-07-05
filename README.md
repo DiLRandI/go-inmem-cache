@@ -1,17 +1,28 @@
 # go-inmem-cache
 
-A high-performance, thread-safe, generic in-memory cache implementation for Go with TTL (Time-To-Live) support and dual eviction strategies.
+A **high-performance**, **thread-safe**, **generic** in-memory cache implementation for Go with **optimized TTL management** and **dual eviction strategies**.
+
+## ⚡ Performance Optimizations
+
+This cache includes several **cutting-edge optimizations** for maximum performance:
+
+1. **🔗 Doubly-Linked List LRU**: O(1) insertions, deletions, and LRU updates (vs O(n) with slice-based approaches)
+2. **⏰ Heap-Based TTL Management**: Single background cleanup process instead of individual timers per item
+3. **🧮 Optimized Size Calculation**: Cached type information eliminates repeated reflection calls
+4. **🔍 Reduced Map Lookups**: Single lookups instead of redundant hash computations
+5. **💾 Memory Efficiency**: Eliminated duplicate key storage and optimized struct layouts
 
 ## Features
 
 - 🚀 **Generic Type Support**: Works with any comparable key type and any value type
 - 🔒 **Thread-Safe**: Built with `sync.RWMutex` for concurrent access
-- ⏰ **TTL Support**: Set values with Time-To-Live using `SetWithTTL(key, &value, duration)`
-- 📦 **Dual Eviction**: FIFO eviction based on item count OR memory size limits
-- 💾 **Memory Tracking**: Accurate size calculation and `CurrentSize()` method
-- 🧹 **Manual Cleanup**: Remove expired items on-demand
-- 📊 **Cache Statistics**: Get cache size, item count, and memory usage
+- ⏰ **Optimized TTL Support**: Efficient heap-based expiration with `SetWithTTL(key, &value, duration)`
+- 📦 **Dual Eviction**: LRU eviction based on item count OR memory size limits
+- 💾 **Memory Tracking**: Accurate size calculation with optimized reflection usage
+- 🧹 **Automatic Cleanup**: Background cleanup of expired items with manual trigger option
+- 📊 **Cache Management**: Get cache size, item count, clear cache, and proper cleanup
 - 🎯 **Zero Dependencies**: Uses only Go standard library
+- ⚡ **High Performance**: Optimized for speed and memory efficiency
 
 ## Installation
 
@@ -145,15 +156,8 @@ myCache.Delete("key1")
 #### Get Cache Size
 
 ```go
-size := myCache.Len()
-fmt.Printf("Current cache size: %d\n", size)
-```
-
-#### Get Memory Usage
-
-```go
-memoryUsage := myCache.CurrentSize()
-fmt.Printf("Current memory usage: %d bytes\n", memoryUsage)
+count := myCache.Len()
+fmt.Printf("Current item count: %d\n", count)
 ```
 
 #### Clear All Items
@@ -162,11 +166,18 @@ fmt.Printf("Current memory usage: %d bytes\n", memoryUsage)
 myCache.Clear()
 ```
 
-#### Cleanup Expired Items
+#### Cleanup Expired Items (Manual)
 
 ```go
-removedCount := myCache.CleanupExpired()
-fmt.Printf("Removed %d expired items\n", removedCount)
+myCache.CleanupExpired()
+fmt.Println("Expired items cleaned up")
+```
+
+#### Proper Cleanup
+
+```go
+// Always close the cache when done to stop background cleanup
+defer myCache.Close()
 ```
 
 ## Advanced Usage
@@ -321,11 +332,18 @@ go test -bench=. -benchmem
 Example benchmark results:
 
 ```text
-BenchmarkCacheSet-16                 2452876       505.1 ns/op     448 B/op      2 allocs/op
-BenchmarkCacheGet-16                13508820        80.41 ns/op     13 B/op      1 allocs/op
-BenchmarkCacheSetWithTTL-16          2265871       535.3 ns/op     491 B/op      3 allocs/op
-BenchmarkCacheConcurrentRead-16     28890189        77.49 ns/op     13 B/op      1 allocs/op
-BenchmarkCacheConcurrentWrite-16     3420054       343.2 ns/op      57 B/op      1 allocs/op
+BenchmarkCacheSet-16                  1871722        609.4 ns/op
+BenchmarkCacheGet-16                 12779833        117.6 ns/op
+BenchmarkCacheSetWithTTL-16           1000000       1463 ns/op
+BenchmarkCacheConcurrentRead-16       4000948        318.0 ns/op
+BenchmarkCacheConcurrentWrite-16      3619467        397.2 ns/op
+BenchmarkCacheDelete-16               4033398        347.6 ns/op
+BenchmarkComplexTypeOperations-16     2327635        646.9 ns/op
+BenchmarkOptimizedTTL-16              1000000       1132 ns/op
+BenchmarkLRUOperations-16             2490841        505.5 ns/op
+BenchmarkCacheUpdate-16               4869848        264.2 ns/op
+BenchmarkTTLCleanup-16               24032960         53.32 ns/op
+BenchmarkMixedOperations-16           2623839        455.0 ns/op
 ```
 
 Check out the `cache_test.go` file for more detailed examples and usage patterns.
