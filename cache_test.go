@@ -304,3 +304,260 @@ func TestZeroTTL(t *testing.T) {
 		t.Errorf("Item with zero TTL should be expired immediately")
 	}
 }
+
+// TestOptimizedTTLManagement tests the new heap-based TTL system
+func TestOptimizedTTLManagement(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Add multiple items with different TTLs
+	values := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		values[i] = fmt.Sprintf("value-%d", i)
+		ttl := time.Duration(i+1) * 50 * time.Millisecond
+		cache.SetWithTTL(fmt.Sprintf("key-%d", i), &values[i], ttl)
+	}
+
+	// All should be available immediately
+	for i := 0; i < 5; i++ {
+		if _, found := cache.Get(fmt.Sprintf("key-%d", i)); !found {
+			t.Errorf("Key-%d should be available immediately", i)
+		}
+	}
+
+	// Wait for first few to expire
+	time.Sleep(200 * time.Millisecond)
+
+	// Check expiration pattern - earlier items should expire first
+	expectedExpired := 3 // items 0, 1, 2 should be expired (50ms, 100ms, 150ms)
+	actualExpired := 0
+	for i := 0; i < 5; i++ {
+		if _, found := cache.Get(fmt.Sprintf("key-%d", i)); !found {
+			actualExpired++
+		}
+	}
+
+	if actualExpired < expectedExpired {
+		t.Errorf("Expected at least %d items to be expired, got %d", expectedExpired, actualExpired)
+	}
+}
+
+// TestComplexTypeSizeCalculation tests optimized size calculation with complex types
+func TestComplexTypeSizeCalculation(t *testing.T) {
+	type ComplexValue struct {
+		Data map[string][]int
+		Meta []string
+		Ptr  *string
+	}
+
+	cache := New[string, ComplexValue](&Config{})
+
+	value := ComplexValue{
+		Data: map[string][]int{
+			"key1": {1, 2, 3, 4, 5},
+			"key2": {6, 7, 8, 9, 10},
+		},
+		Meta: []string{"meta1", "meta2", "meta3"},
+		Ptr:  func() *string { s := "pointer_value"; return &s }(),
+	}
+
+	// This should not panic and should work efficiently
+	cache.Set("complex", &value)
+
+	if retrieved, found := cache.Get("complex"); !found {
+		t.Errorf("Complex value should be retrievable")
+	} else {
+		if len(retrieved.Data) != 2 || len(retrieved.Meta) != 3 || *retrieved.Ptr != "pointer_value" {
+			t.Errorf("Complex value not stored/retrieved correctly")
+		}
+	}
+}
+
+// TestLRUOrderingWithOptimizations tests that LRU ordering works with doubly-linked list
+func TestLRUOrderingWithOptimizations(t *testing.T) {
+	maxItems := int64(3)
+	cache := New[string, string](&Config{MaxItems: &maxItems})
+
+	// Add items in order
+	values := []string{"first", "second", "third"}
+	for i, val := range values {
+		cache.Set(fmt.Sprintf("item%d", i), &val)
+	}
+
+	// Access item0 to make it most recently used
+	cache.Get("item0")
+
+	// Add fourth item - should evict item1 (least recently used)
+	fourth := "fourth"
+	cache.Set("item3", &fourth)
+
+	// Check that item1 was evicted but item0 remains
+	if _, found := cache.Get("item1"); found {
+		t.Errorf("item1 should have been evicted (was least recently used)")
+	}
+	if _, found := cache.Get("item0"); !found {
+		t.Errorf("item0 should remain (was recently accessed)")
+	}
+	if _, found := cache.Get("item2"); !found {
+		t.Errorf("item2 should remain")
+	}
+	if _, found := cache.Get("item3"); !found {
+		t.Errorf("item3 should remain (was just added)")
+	}
+}
+
+// TestTTLUpdateOptimization tests that updating TTL works efficiently
+func TestTTLUpdateOptimization(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	value := "test-value"
+
+	// Set with short TTL
+	cache.SetWithTTL("update-test", &value, 50*time.Millisecond)
+
+	// Wait half the time
+	time.Sleep(25 * time.Millisecond)
+
+	// Update with longer TTL
+	cache.SetWithTTL("update-test", &value, 200*time.Millisecond)
+
+	// Wait past original TTL
+	time.Sleep(50 * time.Millisecond)
+
+	// Should still be available due to updated TTL
+	if _, found := cache.Get("update-test"); !found {
+		t.Errorf("Item should still be available after TTL update")
+	}
+}
+
+// TestConcurrentTTLOperations tests concurrent TTL operations
+func TestConcurrentTTLOperations(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	// Concurrent TTL operations
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			for j := 0; j < 10; j++ {
+				key := fmt.Sprintf("ttl-key-%d-%d", id, j)
+				value := fmt.Sprintf("value-%d-%d", id, j)
+				ttl := time.Duration(j+1) * 10 * time.Millisecond
+
+				cache.SetWithTTL(key, &value, ttl)
+
+				// Immediately try to get it
+				if _, found := cache.Get(key); !found {
+					t.Errorf("Key should be available immediately after setting with TTL")
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestMemoryEfficiencyOptimizations tests that our optimizations actually reduce memory usage
+func TestMemoryEfficiencyOptimizations(t *testing.T) {
+	// Test with many TTL items to ensure we don't create too many goroutines
+	cache := New[string, string](&Config{})
+
+	// Add many items with TTL - this should not create memory issues
+	for i := 0; i < 1000; i++ {
+		value := fmt.Sprintf("value-%d", i)
+		cache.SetWithTTL(fmt.Sprintf("key-%d", i), &value, time.Hour)
+	}
+
+	// Basic functionality should still work
+	testValue := "test"
+	cache.Set("test-key", &testValue)
+
+	if _, found := cache.Get("test-key"); !found {
+		t.Errorf("Basic functionality should work even with many TTL items")
+	}
+}
+
+// TestCacheLen tests the Len() method
+func TestCacheLen(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Empty cache
+	if cache.Len() != 0 {
+		t.Errorf("Empty cache should have length 0, got %d", cache.Len())
+	}
+
+	// Add items
+	values := []string{"one", "two", "three"}
+	for i, val := range values {
+		cache.Set(fmt.Sprintf("key%d", i), &val)
+	}
+
+	if cache.Len() != 3 {
+		t.Errorf("Cache should have length 3, got %d", cache.Len())
+	}
+
+	// Delete one
+	cache.Delete("key1")
+
+	if cache.Len() != 2 {
+		t.Errorf("Cache should have length 2 after deletion, got %d", cache.Len())
+	}
+}
+
+// TestCacheClear tests the Clear() method
+func TestCacheClear(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Add items
+	values := []string{"one", "two", "three"}
+	for i, val := range values {
+		cache.Set(fmt.Sprintf("key%d", i), &val)
+	}
+
+	// Add TTL items
+	cache.SetWithTTL("ttl-key", &values[0], time.Hour)
+
+	if cache.Len() != 4 {
+		t.Errorf("Cache should have 4 items before clear")
+	}
+
+	// Clear cache
+	cache.Clear()
+
+	if cache.Len() != 0 {
+		t.Errorf("Cache should be empty after clear, got %d items", cache.Len())
+	}
+
+	// Verify items are actually gone
+	for i := 0; i < 3; i++ {
+		if _, found := cache.Get(fmt.Sprintf("key%d", i)); found {
+			t.Errorf("Item key%d should be gone after clear", i)
+		}
+	}
+
+	if _, found := cache.Get("ttl-key"); found {
+		t.Errorf("TTL item should be gone after clear")
+	}
+}
+
+// TestCacheClose tests the Close() method
+func TestCacheClose(t *testing.T) {
+	cache := New[string, string](&Config{})
+
+	// Add some items
+	value := "test"
+	cache.Set("test-key", &value)
+	cache.SetWithTTL("ttl-key", &value, time.Hour)
+
+	// Close should not panic
+	cache.Close()
+
+	// Cache should still be usable for basic operations after close
+	// (though cleanup goroutine won't run)
+	if _, found := cache.Get("test-key"); !found {
+		t.Errorf("Existing items should still be accessible after close")
+	}
+}

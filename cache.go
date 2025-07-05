@@ -43,10 +43,10 @@ type cache[K comparable, V any] struct {
 	items map[K]*cacheItem[K, V] // map to store actual data for fast access
 
 	// Optimized TTL expiration management
-	expirationQueue []*expirationEntry[K] // min-heap of expiration entries
+	expirationQueue []*expirationEntry[K]     // min-heap of expiration entries
 	expirationMap   map[K]*expirationEntry[K] // fast lookup for expiration entries
-	cleanupTicker   *time.Ticker           // single ticker for all TTL cleanup
-	stopChan        chan struct{}          // channel to stop background cleanup
+	cleanupTicker   *time.Ticker              // single ticker for all TTL cleanup
+	stopChan        chan struct{}             // channel to stop background cleanup
 
 	// Size calculation optimization
 	keyTypeSize   int64 // cached size for key type
@@ -125,18 +125,18 @@ func New[K comparable, V any](config *Config) Cache[K, V] {
 	}
 
 	c := &cache[K, V]{
-		size:             config.Size,
-		maxItems:         config.MaxItems,
-		head:             head,
-		tail:             tail,
-		items:            make(map[K]*cacheItem[K, V]),
-		expirationQueue:  make([]*expirationEntry[K], 0),
-		expirationMap:    make(map[K]*expirationEntry[K]),
-		stopChan:         make(chan struct{}),
-		keyTypeSize:      keyTypeSize,
-		valueTypeSize:    valueTypeSize,
-		isKeyString:      isKeyString,
-		isValueString:    isValueString,
+		size:            config.Size,
+		maxItems:        config.MaxItems,
+		head:            head,
+		tail:            tail,
+		items:           make(map[K]*cacheItem[K, V]),
+		expirationQueue: make([]*expirationEntry[K], 0),
+		expirationMap:   make(map[K]*expirationEntry[K]),
+		stopChan:        make(chan struct{}),
+		keyTypeSize:     keyTypeSize,
+		valueTypeSize:   valueTypeSize,
+		isKeyString:     isKeyString,
+		isValueString:   isValueString,
 	}
 
 	// Start the cleanup ticker for periodic expiration check
@@ -180,11 +180,13 @@ func (c *cache[K, V]) SetWithTTL(key K, value *V, ttl time.Duration) {
 }
 
 func (c *cache[K, V]) Get(key K) (*V, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if item, exists := c.items[key]; exists {
 		if c.isItemValid(item) {
+			// Move to tail (most recently used position)
+			c.moveToTail(item.Node)
 			return item.Value, true // Item found and valid
 		}
 	}
@@ -528,13 +530,13 @@ func (c *cache[K, V]) Len() int {
 func (c *cache[K, V]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Clear all maps and reset size
 	c.items = make(map[K]*cacheItem[K, V])
 	c.expirationMap = make(map[K]*expirationEntry[K])
 	c.expirationQueue = make([]*expirationEntry[K], 0)
 	c.sizeBytes = 0
-	
+
 	// Reset doubly-linked list
 	c.head.next = c.tail
 	c.tail.prev = c.head

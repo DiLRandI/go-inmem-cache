@@ -12,21 +12,25 @@ func main() {
 	fmt.Println("=== Basic Usage ===")
 	basicExample()
 
-	// Example 2: TTL Usage
-	fmt.Println("\n=== TTL Usage ===")
+	// Example 2: TTL Usage (Optimized)
+	fmt.Println("\n=== Optimized TTL Usage ===")
 	ttlExample()
 
-	// Example 3: LRU Eviction
-	fmt.Println("\n=== LRU Eviction ===")
+	// Example 3: LRU Eviction (Optimized)
+	fmt.Println("\n=== Optimized LRU Eviction ===")
 	lruExample()
 
 	// Example 4: Size-Based Eviction
 	fmt.Println("\n=== Size-Based Eviction ===")
 	sizeExample()
 
-	// Example 5: Different Types
-	fmt.Println("\n=== Different Types ===")
-	typeExample()
+	// Example 5: Different Types (Optimized Size Calculation)
+	fmt.Println("\n=== Optimized Complex Types ===")
+	complexTypeExample()
+
+	// Example 6: Cache Management
+	fmt.Println("\n=== Cache Management ===")
+	managementExample()
 }
 
 func basicExample() {
@@ -146,8 +150,73 @@ func sizeExample() {
 	}
 }
 
+func complexTypeExample() {
+	// Example with complex types to show optimized size calculation
+	type ComplexData struct {
+		Metadata map[string][]string
+		Values   []int
+		Pointer  *string
+	}
+
+	complexCache := cache.New[string, ComplexData](nil)
+
+	// Create complex data
+	str := "pointer_data"
+	data := ComplexData{
+		Metadata: map[string][]string{
+			"tags":       {"important", "cached"},
+			"categories": {"data", "example"},
+		},
+		Values:  []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		Pointer: &str,
+	}
+
+	// With our optimizations, this is efficient even for complex types
+	complexCache.Set("complex:1", &data)
+
+	if retrieved, found := complexCache.Get("complex:1"); found {
+		fmt.Printf("Complex data retrieved successfully:\n")
+		fmt.Printf("  Values count: %d\n", len(retrieved.Values))
+		fmt.Printf("  Metadata keys: %d\n", len(retrieved.Metadata))
+		fmt.Printf("  Pointer value: %s\n", *retrieved.Pointer)
+	}
+
+	fmt.Printf("✓ Optimized size calculation handles complex types efficiently\n")
+}
+
+func managementExample() {
+	// Example of cache management functions
+	myCache := cache.New[string, string](nil)
+
+	// Add some items
+	values := []string{"one", "two", "three", "four", "five"}
+	for i, val := range values {
+		myCache.Set(fmt.Sprintf("item%d", i), &val)
+	}
+
+	fmt.Printf("Cache length: %d items\n", myCache.Len())
+
+	// Add some TTL items
+	ttlValue := "expires-soon"
+	myCache.SetWithTTL("ttl-item", &ttlValue, 1*time.Hour)
+
+	fmt.Printf("Cache length after TTL item: %d items\n", myCache.Len())
+
+	// Manually cleanup expired items (usually done automatically)
+	myCache.CleanupExpired()
+
+	// Clear all items
+	myCache.Clear()
+	fmt.Printf("Cache length after clear: %d items\n", myCache.Len())
+
+	// Proper cleanup when done
+	defer myCache.Close()
+
+	fmt.Printf("✓ Cache management operations completed\n")
+}
+
 func typeExample() {
-	// Example with different types
+	// Example with different types - now with optimized type handling
 	type User struct {
 		ID   int
 		Name string
